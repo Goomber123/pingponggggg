@@ -6,7 +6,7 @@ const cors = require('cors');
 const app = express();
 app.use(cors());
 
-// FIXED: This explicit route serves your game board right at the home link
+// Explicitly serve your index.html file at the home URL
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
 });
@@ -28,7 +28,7 @@ io.on('connection', (socket) => {
         socket.join(roomId);
 
         if (!rooms[roomId]) {
-            // First player joins
+            // First player joins: Initialize room state variables
             rooms[roomId] = {
                 players: [socket.id],
                 scores: { p1: 0, p2: 0 },
@@ -87,6 +87,7 @@ function startGameLoop(roomId) {
         ball.x += ball.dx;
         ball.y += ball.dy;
 
+        // Wall collisions
         if (ball.y <= 10 || ball.y >= 490) {
             ball.dy *= -1;
         }
@@ -94,6 +95,7 @@ function startGameLoop(roomId) {
         const pWidth = 15;
         const pHeight = 90;
 
+        // Player 1 Collision
         if (ball.x <= 35 && ball.x >= 20) {
             if (ball.y >= room.p1Paddle && ball.y <= room.p1Paddle + pHeight) {
                 ball.dx = Math.abs(ball.dx) + 0.5;
@@ -102,6 +104,7 @@ function startGameLoop(roomId) {
             }
         }
 
+        // Player 2 Collision
         if (ball.x >= 765 && ball.x <= 780) {
             if (ball.y >= room.p2Paddle && ball.y <= room.p2Paddle + pHeight) {
                 ball.dx = -Math.abs(ball.dx) - 0.5;
@@ -110,6 +113,7 @@ function startGameLoop(roomId) {
             }
         }
 
+        // Score logic
         if (ball.x < 0) {
             room.scores.p2 += 1;
             resetBall(ball, -4);
