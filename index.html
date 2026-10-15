@@ -3,231 +3,245 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cross-Device Ping Pong Multiplayer</title>
-    <script src="https://jsdelivr.net"></script>
+    <title>Serverless Peer Pong 🏓</title>
+    <!-- Load PeerJS for direct browser-to-browser connections -->
+    <script src="https://unpkg.com"></script>
     <style>
         body {
-            margin: 0;
-            padding: 0;
-            background-color: #1e272e;
-            color: #ffffff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            overflow: hidden;
-            touch-action: none;
+            margin: 0; padding: 0;
+            background-color: #1a1a24; color: #ffffff;
+            font-family: system-ui, sans-serif;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            min-height: 100vh; overflow: hidden; touch-action: none;
         }
-        #setup-screen {
-            text-align: center;
-            background: #2f3640;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.4);
-            max-width: 90%;
-            width: 400px;
+        #lobby {
+            text-align: center; background: #252538;
+            padding: 30px; border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            max-width: 90%; width: 400px;
         }
         .btn {
-            background: #4cd137;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            font-size: 18px;
-            font-weight: bold;
-            border-radius: 6px;
-            cursor: pointer;
-            margin-top: 15px;
-            width: 100%;
-            transition: 0.2s;
+            background: #ff4757; color: white; border: none;
+            padding: 14px 28px; font-size: 18px; font-weight: bold;
+            border-radius: 8px; cursor: pointer; margin-top: 15px;
+            width: 100%; transition: 0.2s;
         }
-        .btn:hover { background: #44bd32; }
+        .btn:hover { background: #ff6b81; }
         #invite-box {
-            display: none;
-            margin-top: 20px;
-            background: #1e272e;
-            padding: 10px;
-            border-radius: 6px;
-            word-break: break-all;
-            font-size: 14px;
-            border: 1px dashed #718093;
+            display: none; margin-top: 20px; background: #121214;
+            padding: 15px; border-radius: 8px; word-break: break-all;
+            font-size: 14px; border: 2px dashed #ff4757;
         }
-        #game-area {
-            display: none;
-            position: relative;
-            flex-direction: column;
-            align-items: center;
-        }
-        #scoreboard {
-            font-size: 32px;
-            font-weight: bold;
-            margin-bottom: 10px;
-            letter-spacing: 4px;
-        }
+        #game-view { display: none; flex-direction: column; align-items: center; }
+        #score { font-size: 48px; font-weight: bold; margin-bottom: 10px; letter-spacing: 6px; }
         canvas {
-            background: #0c1013;
-            border: 4px solid #718093;
-            border-radius: 8px;
-            max-width: 100%;
-            height: auto;
-            box-shadow: 0 15px 30px rgba(0,0,0,0.5);
+            background: #09090e; border: 4px solid #32324d;
+            border-radius: 12px; max-width: 100%; height: auto;
         }
-        #status-indicator {
-            margin-top: 10px;
-            font-style: italic;
-            color: #dcdde1;
-        }
+        #status { margin-top: 15px; color: #ffa502; font-style: italic; font-size: 16px;}
     </style>
 </head>
 <body>
 
-    <div id="setup-screen">
-        <h2>🏓 Cross-Device Pong</h2>
-        <p id="setup-instruction">Create a room to generate a live invite link for your friend!</p>
-        <button id="create-btn" class="btn">Create Match Room</button>
+    <!-- LOBBY SCREEN -->
+    <div id="lobby">
+        <h2>🏓 Peer-to-Peer Pong</h2>
+        <p id="instruction">Connecting to matchmaking network...</p>
+        <button id="start-btn" class="btn" style="display:none;">Create Match Room</button>
         <div id="invite-box">
-            <p style="margin:0 0 5px 0; color:#e1b12c;">Send this URL to your friend:</p>
-            <span id="invite-url"></span>
+            <p style="margin:0 0 8px 0; color:#ffa502; font-weight:bold;">Copy & send this link to your friend:</p>
+            <span id="invite-url" style="color:#70a1ff;">Generating...</span>
         </div>
     </div>
 
-    <div id="game-area">
-        <div id="scoreboard"><span id="p1-score">0</span> : <span id="p2-score">0</span></div>
+    <!-- GAME SCREEN -->
+    <div id="game-view">
+        <div id="score"><span id="p1-score">0</span> : <span id="p2-score">0</span></div>
         <canvas id="pongCanvas" width="800" height="500"></canvas>
-        <div id="status-indicator">Connecting to court matrix...</div>
+        <div id="status">Connecting directly to court...</div>
     </div>
 
 <script>
-    // FIXED: Dynamically matches your live link (https://onrender.com) automatically
-    const SERVER_URL = window.location.origin;
-    const socket = io(SERVER_URL);
-
-    const setupScreen = document.getElementById('setup-screen');
-    const gameArea = document.getElementById('game-area');
-    const createBtn = document.getElementById('create-btn');
+    const lobby = document.getElementById('lobby');
+    const gameView = document.getElementById('game-view');
+    const startBtn = document.getElementById('start-btn');
     const inviteBox = document.getElementById('invite-box');
     const inviteUrl = document.getElementById('invite-url');
-    const statusIndicator = document.getElementById('status-indicator');
-    
+    const instruction = document.getElementById('instruction');
+    const status = document.getElementById('status');
     const canvas = document.getElementById('pongCanvas');
     const ctx = canvas.getContext('2d');
 
-    let roomId = null;
-    let playerNum = null;
+    let peer = null;
+    let conn = null;
+    let isHost = false;
     let gameActive = false;
 
+    // Game Variables
     let p1Y = 200, p2Y = 200;
     const pWidth = 15, pHeight = 90;
-    let ball = { x: 400, y: 250, radius: 10 };
+    let ball = { x: 400, y: 250, dx: 5, dy: 3, radius: 10 };
+    let scores = { p1: 0, p2: 0 };
 
     const urlParams = new URLSearchParams(window.location.search);
-    const existingRoom = urlParams.get('room');
+    const targetPeerId = urlParams.get('room');
 
-    if (existingRoom) {
-        roomId = existingRoom;
-        setupScreen.style.display = 'none';
-        gameArea.style.display = 'flex';
-        statusIndicator.innerText = "Connecting to match lobby...";
-        socket.emit('join_room', roomId);
+    if (targetPeerId) {
+        // CLIENT MODE: Connect to the host friend
+        isHost = false;
+        instruction.innerText = "Joining game room...";
+        peer = new Peer();
+        
+        peer.on('open', () => {
+            conn = peer.connect(targetPeerId);
+            setupConnection();
+        });
+    } else {
+        // HOST MODE: Create a room
+        isHost = true;
+        peer = new Peer();
+        
+        peer.on('open', (id) => {
+            instruction.innerText = "Network ready!";
+            startBtn.style.display = 'block';
+        });
+
+        peer.on('connection', (connection) => {
+            conn = connection;
+            setupConnection();
+        });
     }
 
-    createBtn.addEventListener('click', () => {
-        roomId = Math.random().toString(36).substring(2, 9);
-        const generatedLink = window.location.origin + '?room=' + roomId;
-        inviteUrl.innerText = generatedLink;
+    startBtn.addEventListener('click', () => {
+        const link = window.location.href.split('?')[0] + '?room=' + peer.id;
+        inviteUrl.innerText = link;
         inviteBox.style.display = 'block';
-        createBtn.style.display = 'none';
-        document.getElementById('setup-instruction').innerText = "Waiting for friend to connect via link...";
-        
-        socket.emit('join_room', roomId);
+        startBtn.style.display = 'none';
+        instruction.innerText = "Waiting for your friend to open the link...";
     });
 
-    socket.on('player_assignment', (num) => {
-        playerNum = num;
-        if(playerNum === 1) {
-            setupScreen.style.display = 'none';
-            gameArea.style.display = 'flex';
-            statusIndicator.innerText = "Waiting for friend to open invite link...";
-        }
-    });
+    function setupConnection() {
+        conn.on('open', () => {
+            lobby.style.display = 'none';
+            gameView.style.display = 'flex';
+            status.innerText = isHost ? "Match Live! You are Left Paddle" : "Match Live! You are Right Paddle";
+            gameActive = true;
+            if (isHost) runHostPhysics();
+        });
 
-    socket.on('game_ready', () => {
-        gameActive = true;
-        statusIndicator.innerText = `Match Live! You are Player ${playerNum}`;
-    });
+        conn.on('data', (data) => {
+            if (!isHost && data.type === 'sync') {
+                // Client receives positions from host
+                ball = data.ball;
+                p1Y = data.p1Y;
+                scores = data.scores;
+                document.getElementById('p1-score').innerText = scores.p1;
+                document.getElementById('p2-score').innerText = scores.p2;
+                render();
+            }
+            if (data.type === 'paddle') {
+                // Host receives paddle movement from client, or vice versa
+                if (isHost) p2Y = data.y;
+                if (!isHost) p1Y = data.y;
+            }
+        });
 
-    socket.on('ball_sync', (serverBall) => {
-        ball.x = serverBall.x;
-        ball.y = serverBall.y;
-        renderCourt();
-    });
+        conn.on('close', () => {
+            gameActive = false;
+            status.innerText = "Friend disconnected. Refresh to start a new match.";
+        });
+    }
 
-    socket.on('paddle_moved', (data) => {
-        if (data.playerNum === 1) p1Y = data.y;
-        if (data.playerNum === 2) p2Y = data.y;
-    });
-
-    socket.on('update_scores', (scores) => {
-        document.getElementById('p1-score').innerText = scores.p1;
-        document.getElementById('p2-score').innerText = scores.p2;
-    });
-
-    socket.on('opponent_left', () => {
-        gameActive = false;
-        statusIndicator.innerText = "Opponent dropped connection. Reload page to start fresh.";
-    });
-
-    socket.on('room_full', () => {
-        alert("This room is already occupied!");
-    });
-
-    function trackInput(clientY) {
+    // Input Handling (Mouse & Touch)
+    function handleMove(clientY) {
         if (!gameActive) return;
         const rect = canvas.getBoundingClientRect();
         const scaleY = canvas.height / rect.height;
-        let relativeY = (clientY - rect.top) * scaleY - pHeight / 2;
+        let y = (clientY - rect.top) * scaleY - pHeight / 2;
 
-        if (relativeY < 0) relativeY = 0;
-        if (relativeY > canvas.height - pHeight) relativeY = canvas.height - pHeight;
+        if (y < 0) y = 0;
+        if (y > canvas.height - pHeight) y = canvas.height - pHeight;
 
-        if (playerNum === 1) p1Y = relativeY;
-        if (playerNum === 2) p2Y = relativeY;
+        if (isHost) {
+            p1Y = y;
+        } else {
+            p2Y = y;
+        }
 
-        socket.emit('update_paddle', { roomId, playerNum, y: relativeY });
+        if (conn && conn.open) {
+            conn.send({ type: 'paddle', y: y });
+        }
     }
 
-    window.addEventListener('mousemove', (e) => trackInput(e.clientY));
+    window.addEventListener('mousemove', (e) => handleMove(e.clientY));
     window.addEventListener('touchmove', (e) => {
-        if(e.touches.length > 0) {
-            trackInput(e.touches[0].clientY);
-        }
+        if (e.touches.length > 0) handleMove(e.touches[0].clientY);
     }, { passive: false });
 
-    function renderCourt() {
-        ctx.fillStyle = '#0c1013';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Host handles all game rules and loops to avoid glitches
+    function runHostPhysics() {
+        if (!gameActive) return;
 
-        ctx.strokeStyle = 'rgba(113, 128, 147, 0.4)';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(canvas.width / 2, 0);
-        ctx.lineTo(canvas.width / 2, canvas.height);
-        ctx.stroke();
+        ball.x += ball.dx;
+        ball.y += ball.dy;
 
-        ctx.fillStyle = '#4cd137';
-        ctx.fillRect(20, p1Y, pWidth, pHeight);
+        // Top/Bottom wall bounces
+        if (ball.y <= 10 || ball.y >= 490) ball.dy *= -1;
 
-        ctx.fillStyle = '#00a8ff';
-        ctx.fillRect(canvas.width - 20 - pWidth, p2Y, pWidth, pHeight);
+        // Left Paddle hit
+        if (ball.x <= 35 && ball.x >= 20 && ball.y >= p1Y && ball.y <= p1Y + pHeight) {
+            ball.dx = Math.abs(ball.dx) + 0.4;
+            ball.dy = (ball.y - (p1Y + pHeight/2)) * 0.15;
+        }
 
-        ctx.fillStyle = '#f5f6fa';
-        ctx.beginPath();
-        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-        ctx.fill();
+        // Right Paddle hit
+        if (ball.x >= 765 && ball.x <= 780 && ball.y >= p2Y && ball.y <= p2Y + pHeight) {
+            ball.dx = -Math.abs(ball.dx) - 0.4;
+            ball.dy = (ball.y - (p2Y + pHeight/2)) * 0.15;
+        }
+
+        // Scoring
+        if (ball.x < 0) {
+            scores.p2++;
+            resetBall(-5);
+        } else if (ball.x > 800) {
+            scores.p1++;
+            resetBall(5);
+        }
+
+        document.getElementById('p1-score').innerText = scores.p1;
+        document.getElementById('p2-score').innerText = scores.p2;
+
+        // Send positions to client
+        conn.send({ type: 'sync', ball: ball, p1Y: p1Y, scores: scores });
+        
+        render();
+        requestAnimationFrame(runHostPhysics);
     }
 
-    renderCourt();
+    function resetBall(dir) {
+        ball.x = 400; ball.y = 250;
+        ball.dx = dir; ball.dy = Math.random() > 0.5 ? 3 : -3;
+    }
+
+    function render() {
+        ctx.fillStyle = '#09090e';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Center line
+        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(400,0); ctx.lineTo(400,500); ctx.stroke();
+
+        // Paddles
+        ctx.fillStyle = '#ff4757'; ctx.fillRect(20, p1Y, pWidth, pHeight); // Left
+        ctx.fillStyle = '#2ed573'; ctx.fillRect(765, p2Y, pWidth, pHeight); // Right
+
+        // Ball
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2); ctx.fill();
+    }
 </script>
 </body>
 </html>
