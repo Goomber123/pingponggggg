@@ -1,0 +1,252 @@
+<!-- Save this file as index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cross-Device Ping Pong Multiplayer</title>
+    <!-- Load Socket.io Client Engine -->
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1e272e;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+            touch-action: none;
+        }
+        #setup-screen {
+            text-align: center;
+            background: #2f3640;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+            max-width: 90%;
+            width: 400px;
+        }
+        .btn {
+            background: #4cd137;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 15px;
+            width: 100%;
+            transition: 0.2s;
+        }
+        .btn:hover { background: #44bd32; }
+        #invite-box {
+            display: none;
+            margin-top: 20px;
+            background: #1e272e;
+            padding: 10px;
+            border-radius: 6px;
+            word-break: break-all;
+            font-size: 14px;
+            border: 1px dashed #718093;
+        }
+        #game-area {
+            display: none;
+            position: relative;
+            flex-direction: column;
+            align-items: center;
+        }
+        #scoreboard {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            letter-spacing: 4px;
+        }
+        canvas {
+            background: #0c1013;
+            border: 4px solid #718093;
+            border-radius: 8px;
+            max-width: 100%;
+            height: auto;
+            box-shadow: 0 15px 30px rgba(0,0,0,0.5);
+        }
+        #status-indicator {
+            margin-top: 10px;
+            font-style: italic;
+            color: #dcdde1;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- SCREEN 1: ROOM GENERATION / INVITE SCREEN -->
+    <div id="setup-screen">
+        <h2>🏓 Cross-Device Pong</h2>
+        <p id="setup-instruction">Create a room to generate a live invite link for your friend!</p>
+        <button id="create-btn" class="btn">Create Match Room</button>
+        <div id="invite-box">
+            <p style="margin:0 0 5px 0; color:#e1b12c;">Send this URL to your friend:</p>
+            <span id="invite-url"></span>
+        </div>
+    </div>
+
+    <!-- SCREEN 2: ACTIVE GAME RECTANGLE -->
+    <div id="game-area">
+        <div id="scoreboard"><span id="p1-score">0</span> : <span id="p2-score">0</span></div>
+        <canvas id="pongCanvas" width="800" height="500"></canvas>
+        <div id="status-indicator">Connecting to court matrix...</div>
+    </div>
+
+<script>
+    // Replace URL string with your deployed server domain address
+    const SERVER_URL = window.location.origin.includes('localhost') ? 'http://localhost:3000' : window.location.origin;
+    const socket = io(SERVER_URL);
+
+    const setupScreen = document.getElementById('setup-screen');
+    const gameArea = document.getElementById('game-area');
+    const createBtn = document.getElementById('create-btn');
+    const inviteBox = document.getElementById('invite-box');
+    const inviteUrl = document.getElementById('invite-url');
+    const statusIndicator = document.getElementById('status-indicator');
+    
+    const canvas = document.getElementById('pongCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let roomId = null;
+    let playerNum = null;
+    let gameActive = false;
+
+    // Game Objects Local Cache
+    let p1Y = 200, p2Y = 200;
+    const pWidth = 15, pHeight = 90;
+    let ball = { x: 400, y: 250, radius: 10 };
+
+    // Parse URL room parameters (e.g. ?room=XYZ)
+    const urlParams = new URLSearchParams(window.location.search);
+    const existingRoom = urlParams.get('room');
+
+    if (existingRoom) {
+        roomId = existingRoom;
+        setupScreen.style.display = 'none';
+        gameArea.style.display = 'flex';
+        statusIndicator.innerText = "Waiting for Player 1 to accept connection...";
+        socket.emit('join_room', roomId);
+    }
+
+    createBtn.addEventListener('click', () => {
+        roomId = Math.random().toString(36).substring(2, 9);
+        const generatedLink = window.location.href.split('?')[0] + '?room=' + roomId;
+        inviteUrl.innerText = generatedLink;
+        inviteBox.style.display = 'block';
+        createBtn.style.display = 'none';
+        document.getElementById('setup-instruction').innerText = "Waiting for opponent to connect via link...";
+        
+        socket.emit('join_room', roomId);
+    });
+
+    // Networking Socket Sync Implementations
+    socket.on('player_assignment', (num) => {
+        playerNum = num;
+        if(playerNum === 1) {
+            setupScreen.style.display = 'none';
+            gameArea.style.display = 'flex';
+            statusIndicator.innerText = "Waiting for friend to open invite link...";
+        }
+    });
+
+    socket.on('game_ready', () => {
+        gameActive = true;
+        statusIndicator.innerText = `Match Live! You are Player ${playerNum}`;
+    });
+
+    socket.on('ball_sync', (serverBall) => {
+        ball.x = serverBall.x;
+        ball.y = serverBall.y;
+        renderCourt();
+    });
+
+    socket.on('paddle_moved', (data) => {
+        if (data.playerNum === 1) p1Y = data.y;
+        if (data.playerNum === 2) p2Y = data.y;
+    });
+
+    socket.on('update_scores', (scores) => {
+        document.getElementById('p1-score').innerText = scores.p1;
+        document.getElementById('p2-score').innerText = scores.p2;
+    });
+
+    socket.on('opponent_left', () => {
+        gameActive = false;
+        statusIndicator.innerText = "Opponent dropped connection. Reload page to start fresh.";
+    });
+
+    socket.on('room_full', () => {
+        alert("This room is already occupied!");
+    });
+
+    // Unified Input Controller (Handles both Computer Mouse & Mobile Touches seamlessly)
+    function trackInput(clientY) {
+        if (!gameActive) return;
+        const rect = canvas.getBoundingClientRect();
+        // Scale input coordinates correctly to match standard 800x500 canvas coordinates grid
+        const scaleY = canvas.height / rect.height;
+        let relativeY = (clientY - rect.top) * scaleY - pHeight / 2;
+
+        // Boundaries constraints check
+        if (relativeY < 0) relativeY = 0;
+        if (relativeY > canvas.height - pHeight) relativeY = canvas.height - pHeight;
+
+        // Sync updates directly to engine base
+        if (playerNum === 1) p1Y = relativeY;
+        if (playerNum === 2) p2Y = relativeY;
+
+        socket.emit('update_paddle', { roomId, playerNum, y: relativeY });
+    }
+
+    // Event Bindings
+    window.addEventListener('mousemove', (e) => trackInput(e.clientY));
+    window.addEventListener('touchmove', (e) => {
+        if(e.touches.length > 0) trackInput(e.touches[0].clientY);
+    }, { passive: false });
+
+    // Graphic Rendering Pipeline Engine
+    function renderCourt() {
+        // Clear board
+        ctx.fillStyle = '#0c1013';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Center Net Line
+        ctx.strokeStyle = 'rgba(113, 128, 147, 0.4)';
+        ctx.lineWidth = 4;
+        ctx.setLineDash([15, 15]);
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 0);
+        ctx.lineTo(canvas.width / 2, canvas.height);
+        ctx.stroke();
+        ctx.setLineDash([]); // Reset line style
+
+        // Render Paddle 1 (Left - Green)
+        ctx.fillStyle = '#4cd137';
+        ctx.fillRect(20, p1Y, pWidth, pHeight);
+
+        // Render Paddle 2 (Right - Cyan)
+        ctx.fillStyle = '#00a8ff';
+        ctx.fillRect(canvas.width - 20 - pWidth, p2Y, pWidth, pHeight);
+
+        // Render Pong Ball
+        ctx.fillStyle = '#f5f6fa';
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Initial canvas paint frame
+    renderCourt();
+</script>
+</body>
+</html>
